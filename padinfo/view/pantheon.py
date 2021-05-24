@@ -3,16 +3,17 @@ from typing import TYPE_CHECKING, List
 from discordmenu.embed.base import Box
 from discordmenu.embed.components import EmbedMain, EmbedField, EmbedThumbnail
 from discordmenu.embed.view import EmbedView
+from tsutils import embed_footer_with_state
 
 from padinfo.common.config import UserConfig
 from padinfo.common.emoji_map import get_attribute_emoji_by_monster, get_attribute_emoji_by_enum, \
     get_rarity_emoji
 from padinfo.common.external_links import puzzledragonx
+from padinfo.view.base import BaseIdView
 from padinfo.view.common import get_monster_from_ims
-from padinfo.view.components.base import pad_info_footer_with_state
 from padinfo.view.components.monster.header import MonsterHeader
 from padinfo.view.components.monster.image import MonsterImage
-from padinfo.view.components.view_state_base_id import ViewStateBaseId
+from padinfo.view.components.view_state_base_id import ViewStateBaseId, MonsterEvolution
 from padinfo.view.id import evos_embed_field
 
 if TYPE_CHECKING:
@@ -25,7 +26,7 @@ NIL_ATT = 'Nil'
 
 class PantheonViewState(ViewStateBaseId):
     def __init__(self, original_author_id, menu_type, raw_query, query, color, monster: "MonsterModel", alt_monsters,
-                 pantheon_list: List["MonsterModel"], series_name: str, base_monster,
+                 pantheon_list: List[MonsterEvolution], series_name: str, base_monster,
                  use_evo_scroll: bool = True,
                  reaction_list: List[str] = None,
                  extra_state=None):
@@ -54,7 +55,7 @@ class PantheonViewState(ViewStateBaseId):
         if pantheon_list is None:
             return None
 
-        alt_monsters = cls.get_alt_monsters(dgcog, monster)
+        alt_monsters = cls.get_alt_monsters_and_evos(dgcog, monster)
         raw_query = ims['raw_query']
         query = ims.get('query') or raw_query
         original_author_id = ims['original_author_id']
@@ -121,20 +122,20 @@ class PantheonViewState(ViewStateBaseId):
         if main_att.name == NIL_ATT:
             att_emoji = get_attribute_emoji_by_enum(sub_att)
             main_att_list = [m for m in rarity_list if m.attr1.name == sub_att.name
-                                                       or (m.attr1.name == NIL_ATT
-                                                           and m.attr2.name == sub_att.name)]
+                             or (m.attr1.name == NIL_ATT
+                                 and m.attr2.name == sub_att.name)]
         else:
             att_emoji = get_attribute_emoji_by_enum(main_att)
             main_att_list = [m for m in rarity_list if m.attr1.name == main_att.name
-                                                       or (m.attr1.name == NIL_ATT
-                                                           and m.attr2.name == main_att.name)]
+                             or (m.attr1.name == NIL_ATT
+                                 and m.attr2.name == main_att.name)]
         if 0 < len(main_att_list) <= MAX_MONS_TO_SHOW:
             # append after check this time, because if we go to subatt we only want one emoji
             filters.append(att_emoji)
             return main_att_list, cls.make_series_name(series_name, filters), base_mon
 
         sub_att_list = [m for m in main_att_list if m.attr1.name == main_att.name
-                                                    and m.attr2.name == sub_att.name]
+                        and m.attr2.name == sub_att.name]
         filters.append(get_attribute_emoji_by_monster(base_mon))
         if 0 < len(sub_att_list) <= MAX_MONS_TO_SHOW:
             return sub_att_list, cls.make_series_name(series_name, filters), base_mon
@@ -155,11 +156,11 @@ def _pantheon_lines(monsters, base_monster):
     ]
 
 
-class PantheonView:
+class PantheonView(BaseIdView):
     VIEW_TYPE = 'Pantheon'
 
-    @staticmethod
-    def embed(state: PantheonViewState):
+    @classmethod
+    def embed(cls, state: PantheonViewState):
         fields = [EmbedField(
             'Pantheon: {}'.format(state.series_name),
             Box(*_pantheon_lines(state.pantheon_list, state.base_monster))
@@ -169,9 +170,11 @@ class PantheonView:
         return EmbedView(
             EmbedMain(
                 color=state.color,
-                title=MonsterHeader.long_v2(state.monster).to_markdown(),
+                title=MonsterHeader.long_maybe_tsubaki(state.monster,
+                                                       state.alt_monsters[0].monster.monster_id == cls.TSUBAKI
+                                                       ).to_markdown(),
                 url=puzzledragonx(state.monster)),
-            embed_footer=pad_info_footer_with_state(state),
+            embed_footer=embed_footer_with_state(state),
             embed_fields=fields,
             embed_thumbnail=EmbedThumbnail(MonsterImage.icon(state.monster)),
         )

@@ -14,7 +14,7 @@ class Attribute(Enum):
 
 class MonsterType(Enum):
     Evolve = 0
-    Balance = 1
+    Balanced = 1
     Physical = 2
     Healer = 3
     Dragon = 4
@@ -25,14 +25,6 @@ class MonsterType(Enum):
     Awoken = 12
     Enhance = 14
     Vendor = 15
-
-
-class EvoType(Enum):
-    """Evo types supported by DadGuide. Numbers correspond to their id values."""
-    Base = 0  # Represents monsters who didn't require evo
-    Evo = 1
-    UvoAwoken = 2
-    UuvoReincarnated = 3
 
 
 class InternalEvoType(Enum):

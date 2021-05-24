@@ -4,25 +4,36 @@ from discordmenu.embed.base import Box
 from discordmenu.embed.components import EmbedThumbnail, EmbedMain, EmbedField
 from discordmenu.embed.text import Text, BoldText, LabeledText, HighlightableLinks, LinkedText
 from discordmenu.embed.view import EmbedView
+from tsutils import embed_footer_with_state
 
 from padinfo.common.config import UserConfig
 from padinfo.common.emoji_map import get_awakening_emoji, get_emoji
 from padinfo.common.external_links import puzzledragonx
 from padinfo.core.leader_skills import createMultiplierText
+from padinfo.view.base import BaseIdView
 from padinfo.view.common import get_monster_from_ims
-from padinfo.view.components.base import pad_info_footer_with_state
 from padinfo.view.components.monster.header import MonsterHeader
 from padinfo.view.components.monster.image import MonsterImage
-from padinfo.view.components.view_state_base_id import ViewStateBaseId
+from padinfo.view.components.view_state_base_id import ViewStateBaseId, MonsterEvolution
 
 if TYPE_CHECKING:
     from dadguide.models.monster_model import MonsterModel
     from dadguide.models.awakening_model import AwakeningModel
 
 
+def alt_fmt(monsterevo, state):
+    if monsterevo.monster.is_equip:
+        fmt = "⌈{}⌉"
+    elif not monsterevo.evolution or monsterevo.evolution.reversible:
+        fmt = "{}"
+    else:
+        fmt = "⌊{}⌋"
+    return fmt.format(monsterevo.monster.monster_no_na)
+
+
 class IdViewState(ViewStateBaseId):
     def __init__(self, original_author_id, menu_type, raw_query, query, color, monster: "MonsterModel",
-                 alt_monsters: List["MonsterModel"],
+                 alt_monsters: List[MonsterEvolution],
                  transform_base, true_evo_type_raw, acquire_raw, base_rarity,
                  fallback_message: str = None, use_evo_scroll: bool = True, reaction_list: List[str] = None,
                  is_child: bool = False, extra_state=None):
@@ -52,7 +63,7 @@ class IdViewState(ViewStateBaseId):
         if ims.get('unsupported_transition'):
             return None
         monster = await get_monster_from_ims(dgcog, ims)
-        alt_monsters = cls.get_alt_monsters(dgcog, monster)
+        alt_monsters = cls.get_alt_monsters_and_evos(dgcog, monster)
         transform_base, true_evo_type_raw, acquire_raw, base_rarity = \
             await IdViewState.query(dgcog, monster)
 
@@ -87,7 +98,7 @@ class IdViewState(ViewStateBaseId):
         transform_base = db_context.graph.get_transform_base(monster)
         true_evo_type_raw = db_context.graph.true_evo_type_by_monster(monster).value
         acquire_raw = db_context.graph.monster_acquisition(monster)
-        base_rarity = db_context.graph.get_base_monster_by_id(monster.monster_no).rarity
+        base_rarity = db_context.graph.get_base_monster_by_id(monster.monster_id).rarity
         return acquire_raw, base_rarity, transform_base, true_evo_type_raw
 
 
@@ -117,17 +128,28 @@ def _monster_is_enhance(m: "MonsterModel"):
 
 
 def evos_embed_field(state: ViewStateBaseId):
-    m = state.monster
+    field_text = "**Evos**"
+    help_text = ""
+    # this isn't used right now, but maybe later if discord changes the api for embed titles...?
+    help_link = "https://github.com/TsubakiBotPad/pad-cogs/wiki/Evolutions-mini-view"
+    legend_parts = []
+    if any([alt_evo.evolution and not alt_evo.evolution.reversible for alt_evo in state.alt_monsters]):
+        legend_parts.append("⌊Irreversible⌋")
+    if any([alt_evo.monster.is_equip for alt_evo in state.alt_monsters]):
+        legend_parts.append("⌈Equip⌉")
+    if legend_parts:
+        help_text = ' – Help: {}'.format(" ".join(legend_parts))
     return EmbedField(
-        "Alternate Evos",
+        field_text + help_text,
         HighlightableLinks(
-            links=[LinkedText(str(m.monster_no_na), puzzledragonx(m)) for m in state.alt_monsters],
-            highlighted=next(i for i, mon in enumerate(state.alt_monsters) if m.monster_id == mon.monster_id)
+            links=[LinkedText(alt_fmt(me, state), puzzledragonx(me.monster)) for me in state.alt_monsters],
+            highlighted=next(i for i, me in enumerate(state.alt_monsters)
+                             if state.monster.monster_id == me.monster.monster_id)
         )
     )
 
 
-class IdView:
+class IdView(BaseIdView):
     VIEW_TYPE = 'Id'
 
     @staticmethod
@@ -172,8 +194,8 @@ class IdView:
         return Box(
             BoldText('Available killers:'),
             Text('\N{DOWN-POINTING RED TRIANGLE}' if m != transform_base else ''),
-            Text('[{} slots]'.format(m.latent_slots if m == transform_base \
-                                         else transform_base.latent_slots)),
+            Text('[{} slots]'.format(m.latent_slots if m == transform_base
+                                     else transform_base.latent_slots)),
             Text(killers_text),
             delimiter=' '
         )
@@ -244,8 +266,8 @@ class IdView:
             delimiter=' '
         )
 
-    @staticmethod
-    def embed(state: IdViewState):
+    @classmethod
+    def embed(cls, state: IdViewState):
         m = state.monster
         fields = [
             EmbedField(
@@ -279,8 +301,10 @@ class IdView:
         return EmbedView(
             EmbedMain(
                 color=state.color,
-                title=MonsterHeader.long_v2(m).to_markdown(),
+                title=MonsterHeader.long_maybe_tsubaki(m,
+                                                       state.alt_monsters[0].monster.monster_id == cls.TSUBAKI
+                                                       ).to_markdown(),
                 url=puzzledragonx(m)),
             embed_thumbnail=EmbedThumbnail(MonsterImage.icon(m)),
-            embed_footer=pad_info_footer_with_state(state),
+            embed_footer=embed_footer_with_state(state),
             embed_fields=fields)

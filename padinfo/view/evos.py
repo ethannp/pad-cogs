@@ -3,14 +3,15 @@ from typing import List, TYPE_CHECKING
 from discordmenu.embed.base import Box
 from discordmenu.embed.components import EmbedThumbnail, EmbedMain, EmbedField
 from discordmenu.embed.view import EmbedView
+from tsutils import embed_footer_with_state
 
 from padinfo.common.config import UserConfig
 from padinfo.common.external_links import puzzledragonx
+from padinfo.view.base import BaseIdView
 from padinfo.view.common import get_monster_from_ims
-from padinfo.view.components.base import pad_info_footer_with_state
 from padinfo.view.components.monster.header import MonsterHeader
 from padinfo.view.components.monster.image import MonsterImage
-from padinfo.view.components.view_state_base_id import ViewStateBaseId
+from padinfo.view.components.view_state_base_id import ViewStateBaseId, MonsterEvolution
 
 if TYPE_CHECKING:
     from dadguide.models.monster_model import MonsterModel
@@ -18,15 +19,12 @@ if TYPE_CHECKING:
 
 class EvosViewState(ViewStateBaseId):
     def __init__(self, original_author_id, menu_type, raw_query, query, color,
-                 monster: "MonsterModel",
-
-                 # this param is needed to placate the superclass but we won't duplicate evos in this view
-                 _alt_monsters,
+                 monster: "MonsterModel", alt_monsters: List[MonsterEvolution],
                  alt_versions: List["MonsterModel"], gem_versions: List["MonsterModel"],
                  reaction_list: List[str] = None,
                  use_evo_scroll: bool = True,
                  extra_state=None):
-        super().__init__(original_author_id, menu_type, raw_query, query, color, monster, alt_versions,
+        super().__init__(original_author_id, menu_type, raw_query, query, color, monster, alt_monsters,
                          use_evo_scroll=use_evo_scroll,
                          reaction_list=reaction_list,
                          extra_state=extra_state)
@@ -49,7 +47,7 @@ class EvosViewState(ViewStateBaseId):
 
         if alt_versions is None:
             return None
-        alt_monsters = alt_versions
+        alt_monsters = cls.get_alt_monsters_and_evos(dgcog, monster)
         raw_query = ims['raw_query']
         query = ims.get('query') or raw_query
         original_author_id = ims['original_author_id']
@@ -68,7 +66,7 @@ class EvosViewState(ViewStateBaseId):
     @staticmethod
     async def query(dgcog, monster):
         db_context = dgcog.database
-        alt_versions = sorted(db_context.graph.get_alt_monsters_by_id(monster.monster_no),
+        alt_versions = sorted(db_context.graph.get_alt_monsters_by_id(monster.monster_id),
                               key=lambda x: x.monster_id)
         gem_versions = list(filter(None, map(db_context.graph.evo_gem_monster, alt_versions)))
         if len(alt_versions) == 1 and len(gem_versions) == 0:
@@ -76,7 +74,7 @@ class EvosViewState(ViewStateBaseId):
         return alt_versions, gem_versions
 
 
-class EvosView:
+class EvosView(BaseIdView):
     VIEW_TYPE = 'Evos'
 
     @staticmethod
@@ -88,8 +86,8 @@ class EvosView:
             for ae in sorted(monsters, key=lambda x: int(x.monster_id))
         ]
 
-    @staticmethod
-    def embed(state: EvosViewState):
+    @classmethod
+    def embed(cls, state: EvosViewState):
         fields = [
             EmbedField(
                 ("{} evolution" if len(state.alt_versions) == 1 else "{} evolutions").format(len(state.alt_versions)),
@@ -105,8 +103,10 @@ class EvosView:
         return EmbedView(
             EmbedMain(
                 color=state.color,
-                title=MonsterHeader.long_v2(state.monster).to_markdown(),
+                title=MonsterHeader.long_maybe_tsubaki(state.monster,
+                                                       state.alt_monsters[0].monster.monster_id == cls.TSUBAKI
+                                                       ).to_markdown(),
                 url=puzzledragonx(state.monster)),
             embed_thumbnail=EmbedThumbnail(MonsterImage.icon(state.monster)),
-            embed_footer=pad_info_footer_with_state(state),
+            embed_footer=embed_footer_with_state(state),
             embed_fields=fields)

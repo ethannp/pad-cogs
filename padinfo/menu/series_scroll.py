@@ -5,7 +5,7 @@ from discord import Message
 from discordmenu.embed.menu import EmbedMenu, EmbedControl
 from tsutils import char_to_emoji
 
-from padinfo.menu.common import MenuPanes, emoji_buttons
+from tsutils.menu.panes import MenuPanes, emoji_buttons
 from padinfo.menu.id import IdMenu, IdMenuPanes, IdMenuEmoji
 from padinfo.view.id import IdView
 from padinfo.view.series_scroll import SeriesScrollView, SeriesScrollViewState
@@ -229,7 +229,7 @@ class SeriesScrollMenu:
             return None, {}
         n = SeriesScrollMenuPanes.emoji_names().index(emoji_clicked)
         paginated_monsters = SeriesScrollViewState.query_from_ims(dgcog, ims)
-        page = ims.get('page') or 0
+        page = ims.get('current_page') or 0
         monster_list = paginated_monsters[page]
         extra_ims = {
             'is_child': True,

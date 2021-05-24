@@ -16,10 +16,10 @@ from .monster_stats import monster_stats
 class MonsterModel(BaseModel):
     def __init__(self, **m):
         self.monster_id = m['monster_id']
-        self.monster_no = self.monster_id
         self.monster_no_jp = m['monster_no_jp']
         self.monster_no_na = m['monster_no_na']
         self.monster_no_kr = m['monster_no_kr']
+        self.base_evo_id = m['base_evo_id']
 
         # these things are literally named backwards atm
         self.awakenings = sorted(m['awakenings'], key=lambda a: a.order_idx)
@@ -103,13 +103,13 @@ class MonsterModel(BaseModel):
         type_to_killers_map = {
             MonsterType.God: ['Devil'],
             MonsterType.Devil: ['God'],
-            MonsterType.Machine: ['God', 'Balance'],
+            MonsterType.Machine: ['God', 'Balanced'],
             MonsterType.Dragon: ['Machine', 'Healer'],
             MonsterType.Physical: ['Machine', 'Healer'],
             MonsterType.Attacker: ['Devil', 'Physical'],
             MonsterType.Healer: ['Dragon', 'Attacker'],
         }
-        if MonsterType.Balance in self.types:
+        if MonsterType.Balanced in self.types:
             return ['Any']
         killers = set()
         for t in self.types:

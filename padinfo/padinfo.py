@@ -23,6 +23,7 @@ from padinfo.core.button_info import button_info
 from padinfo.core.leader_skills import perform_leaderskill_query
 from padinfo.core.padinfo_settings import settings
 from padinfo.core.transforminfo import perform_transforminfo_query
+from padinfo.menu.awakening_list import AwakeningListMenu, AwakeningListMenuPanes
 from padinfo.menu.closable_embed import ClosableEmbedMenu
 from padinfo.menu.id import IdMenu, IdMenuPanes
 from padinfo.menu.leader_skill import LeaderSkillMenu
@@ -34,6 +35,7 @@ from padinfo.menu.simple_text import SimpleTextMenu
 from padinfo.menu.transforminfo import TransformInfoMenu, TransformInfoMenuPanes
 from padinfo.reaction_list import get_id_menu_initial_reaction_list
 from padinfo.view.awakening_help import AwakeningHelpView, AwakeningHelpViewProps
+from padinfo.view.awakening_list import AwakeningListViewState, AwakeningListSortTypes
 from padinfo.view.closable_embed import ClosableEmbedViewState
 from padinfo.view.components.monster.header import MonsterHeader
 from padinfo.view.evos import EvosViewState
@@ -249,7 +251,7 @@ class PadInfo(commands.Cog):
         if await self.config.do_survey():
             asyncio.create_task(self.send_survey_after(ctx, query, monster))
 
-        alt_monsters = IdViewState.get_alt_monsters(dgcog, monster)
+        alt_monsters = IdViewState.get_alt_monsters_and_evos(dgcog, monster)
         transform_base, true_evo_type_raw, acquire_raw, base_rarity = \
             await IdViewState.query(dgcog, monster)
         full_reaction_list = [emoji_cache.get_by_name(e) for e in IdMenuPanes.emoji_names()]
@@ -336,6 +338,7 @@ class PadInfo(commands.Cog):
 
         await self.log_id_result(ctx, monster.monster_id)
 
+        alt_monsters = EvosViewState.get_alt_monsters_and_evos(dgcog, monster)
         alt_versions, gem_versions = await EvosViewState.query(dgcog, monster)
 
         if alt_versions is None:
@@ -347,7 +350,7 @@ class PadInfo(commands.Cog):
         initial_reaction_list = await get_id_menu_initial_reaction_list(ctx, dgcog, monster, full_reaction_list)
 
         state = EvosViewState(original_author_id, IdMenu.MENU_TYPE, raw_query, query, color,
-                              monster, alt_versions, alt_versions, gem_versions,
+                              monster, alt_monsters, alt_versions, gem_versions,
                               reaction_list=initial_reaction_list,
                               use_evo_scroll=settings.checkEvoID(ctx.author.id))
         menu = IdMenu.menu(initial_control=IdMenu.evos_control)
@@ -376,7 +379,7 @@ class PadInfo(commands.Cog):
             await ctx.send(inline("This monster has no mats or skillups and isn't used in any evolutions"))
             return
 
-        alt_monsters = MaterialsViewState.get_alt_monsters(dgcog, monster)
+        alt_monsters = MaterialsViewState.get_alt_monsters_and_evos(dgcog, monster)
         full_reaction_list = [emoji_cache.get_by_name(e) for e in IdMenuPanes.emoji_names()]
         initial_reaction_list = await get_id_menu_initial_reaction_list(ctx, dgcog, monster, full_reaction_list)
 
@@ -409,7 +412,7 @@ class PadInfo(commands.Cog):
             await ctx.send('Unable to find a pantheon for the result of your query,'
                            + ' [{}] {}.'.format(monster.monster_id, monster.name_en))
             return
-        alt_monsters = PantheonViewState.get_alt_monsters(dgcog, monster)
+        alt_monsters = PantheonViewState.get_alt_monsters_and_evos(dgcog, monster)
         full_reaction_list = [emoji_cache.get_by_name(e) for e in IdMenuPanes.emoji_names()]
         initial_reaction_list = await get_id_menu_initial_reaction_list(ctx, dgcog, monster, full_reaction_list)
 
@@ -437,7 +440,7 @@ class PadInfo(commands.Cog):
 
         await self.log_id_result(ctx, monster.monster_id)
 
-        alt_monsters = PicViewState.get_alt_monsters(dgcog, monster)
+        alt_monsters = PicViewState.get_alt_monsters_and_evos(dgcog, monster)
         full_reaction_list = [emoji_cache.get_by_name(e) for e in IdMenuPanes.emoji_names()]
         initial_reaction_list = await get_id_menu_initial_reaction_list(ctx, dgcog, monster, full_reaction_list)
 
@@ -465,7 +468,7 @@ class PadInfo(commands.Cog):
 
         await self.log_id_result(ctx, monster.monster_id)
 
-        alt_monsters = PicViewState.get_alt_monsters(dgcog, monster)
+        alt_monsters = PicViewState.get_alt_monsters_and_evos(dgcog, monster)
         full_reaction_list = [emoji_cache.get_by_name(e) for e in IdMenuPanes.emoji_names()]
         initial_reaction_list = await get_id_menu_initial_reaction_list(ctx, dgcog, monster, full_reaction_list)
 
@@ -524,9 +527,34 @@ class PadInfo(commands.Cog):
             return
         DGCOG = self.bot.get_cog("Dadguide")
         info = button_info.get_info(DGCOG, monster)
-        info_str = button_info.to_string(monster, info)
+        info_str = button_info.to_string(DGCOG, monster, info)
         for page in pagify(info_str):
             await ctx.send(box(page))
+
+    @commands.command()
+    @checks.bot_has_permissions(embed_links=True)
+    async def allmats(self, ctx, *, query: str):
+        """Monster info (evo materials tab)"""
+        dgcog = await self.get_dgcog()
+        raw_query = query
+        monster = await dgcog.find_monster(raw_query, ctx.author.id)
+
+        if not monster:
+            await self.send_id_failure_message(ctx, query)
+            return
+
+        await self.log_id_result(ctx, monster.monster_id)
+
+        _, usedin, _, gemusedin, _, _, _, _ = \
+            await MaterialsViewState.query(dgcog, monster)
+
+        if usedin is None and gemusedin is None:
+            await ctx.send(inline("This monster is not a mat for anything nor does it have a gem"))
+            return
+
+        monster_list = usedin or gemusedin
+        title = 'Material For' if usedin else 'Gem is Material For'
+        await self._do_monster_list(ctx, dgcog, query, monster_list, title)
 
     @commands.command()
     @checks.bot_has_permissions(embed_links=True)
@@ -552,8 +580,15 @@ class PadInfo(commands.Cog):
         initial_reaction_list = MonsterListMenuPanes.get_initial_reaction_list(len(monster_list))
         instruction_message = 'Click a reaction to see monster details!'
 
+        subtitle = None
+        if len(monster_list) > MonsterListViewState.MAX_INTERNAL_STORE_SIZE:
+            subtitle = 'List has been truncated to first {} items'.format(MonsterListViewState.MAX_INTERNAL_STORE_SIZE)
+        monster_list = monster_list[:MonsterListViewState.MAX_INTERNAL_STORE_SIZE]
+        paginated_monsters = MonsterListViewState.paginate(monster_list)
         state = MonsterListViewState(original_author_id, MonsterListMenu.MENU_TYPE, raw_query, query, color,
-                                     monster_list, title, instruction_message,
+                                     paginated_monsters, len(paginated_monsters), 0,
+                                     title, instruction_message,
+                                     subtitle,
                                      reaction_list=initial_reaction_list
                                      )
         parent_menu = MonsterListMenu.menu()
@@ -726,18 +761,31 @@ class PadInfo(commands.Cog):
         menu = TransformInfoMenu.menu()
         await menu.create(ctx, state)
 
-    @commands.command(aliases=['awakehelp', 'awakeningshelp', 'awohelp', 'awokenhelp', 'awakenings'])
+    @commands.command(aliases=['awakehelp', 'awakeningshelp', 'awohelp', 'awokenhelp', 'awakeninghelp'])
     @checks.bot_has_permissions(embed_links=True)
-    async def awakeninghelp(self, ctx, *, query):
-        """Describe a monster's regular and super awakenings in detail."""
+    async def awakenings(self, ctx, *, query=None):
+        """Describe a monster's regular and super awakenings in detail.
+
+        Leave <query> blank to see a list of every awakening in the game."""
         dgcog = await self.get_dgcog()
+        color = await self.get_user_embed_color(ctx)
+
+        if not query:
+            sort_type = AwakeningListSortTypes.numerical
+            paginated_skills = await AwakeningListViewState.query(dgcog, sort_type)
+            menu = AwakeningListMenu.menu()
+            state = AwakeningListViewState(ctx.message.author.id, AwakeningListMenu.MENU_TYPE, color,
+                                           sort_type, paginated_skills, 0,
+                                           reaction_list=AwakeningListMenuPanes.get_reaction_list(sort_type))
+            await menu.create(ctx, state)
+            return
+
         monster = await dgcog.find_monster(query, ctx.author.id)
 
         if not monster:
             await self.send_id_failure_message(ctx, query)
             return
 
-        color = await self.get_user_embed_color(ctx)
         original_author_id = ctx.message.author.id
         menu = ClosableEmbedMenu.menu()
         props = AwakeningHelpViewProps(monster=monster)
@@ -1001,7 +1049,7 @@ class PadInfo(commands.Cog):
         ret += "\n\n### Types\n\n" + tabulate(ttable, headers=["Meaning", "Tokens"], tablefmt="github")
         mtable = [(k.value, ", ".join(map(inline, v))) for k, v in maps.MISC_MAP.items()]
         ret += "\n\n### Misc\n\n" + tabulate(mtable, headers=["Meaning", "Tokens"], tablefmt="github")
-        atable = [(awakenings[k.value].name_en, ", ".join(map(inline, v))) for k, v in maps.AWOKEN_MAP.items()]
+        atable = [(awakenings[k.value].name_en, ", ".join(map(inline, v))) for k, v in maps.AWOKEN_SKILL_MAP.items()]
         ret += "\n\n### Awakenings\n\n" + tabulate(atable, headers=["Meaning", "Tokens"], tablefmt="github")
         stable = [(series[k].name_en, ", ".join(map(inline, v)))
                   for k, v in DGCOG.index.series_id_to_pantheon_nickname.items()]
@@ -1026,7 +1074,7 @@ class PadInfo(commands.Cog):
         await DGCOG.wait_until_ready()
 
         tms = DGCOG.token_maps
-        awokengroup = "(" + "|".join(re.escape(aw) for aws in tms.AWOKEN_MAP.values() for aw in aws) + ")"
+        awokengroup = "(" + "|".join(re.escape(aw) for aws in tms.AWOKEN_SKILL_MAP.values() for aw in aws) + ")"
         awakenings = {a.awoken_skill_id: a for a in DGCOG.database.get_all_awoken_skills()}
         series = {s.series_id: s for s in DGCOG.database.get_all_series()}
 
@@ -1081,7 +1129,7 @@ class PadInfo(commands.Cog):
             *["Misc: " + k.value + additmods(v, token)
               for k, v in tms.MISC_MAP.items() if token in v],
             *["Awakening: " + get_awakening_emoji(k) + ' ' + awakenings[k.value].name_en + additmods(v, token)
-              for k, v in tms.AWOKEN_MAP.items() if token in v],
+              for k, v in tms.AWOKEN_SKILL_MAP.items() if token in v],
             *["Main attr: " + get_attribute_emoji_by_enum(k, None) + ' ' + k.name.replace("Nil", "None") +
               additmods(v, token)
               for k, v in tms.COLOR_MAP.items() if token in v],
@@ -1099,7 +1147,7 @@ class PadInfo(commands.Cog):
             *[f"[UNSUPPORTED] Multiple awakenings: {m}x {awakenings[a.value].name_en}"
               f"{additmods([f'{m}*{d}' for d in v], token)}"
               for m, ag in re.findall(r"^(\d+)\*{}$".format(awokengroup), token)
-              for a, v in tms.AWOKEN_MAP.items() if ag in v]
+              for a, v in tms.AWOKEN_SKILL_MAP.items() if ag in v]
         ])
 
         if meanings or ret:
@@ -1180,6 +1228,5 @@ class PadInfo(commands.Cog):
             if base_id not in used:
                 used.add(base_id)
                 monster_list.append(mon)
-        monster_list = monster_list[:11]
 
         await self._do_monster_list(ctx, dgcog, query, monster_list, 'ID Search Results')
